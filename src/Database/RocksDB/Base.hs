@@ -33,6 +33,8 @@ module Database.RocksDB.Base
     , get
     , getCF
     , withSnapshot
+    , dropCF
+    , createCF
 
     -- * Administrative Functions
     , Property (..), getProperty
@@ -342,3 +344,14 @@ withStrings ss f =
   where
     go acc [] = f (reverse acc)
     go acc (x:xs) = withCString x $ \p -> go (p:acc) xs
+
+-- | Drop a column family
+dropCF :: MonadIO m => DB -> ColumnFamily -> m ()
+dropCF DB{rocksDB = db_ptr} cf = liftIO $
+    throwIfErr "dropCF" $ c_rocksdb_drop_column_family db_ptr cf
+
+-- | Create a column family
+createCF :: MonadIO m => DB -> Config -> String -> m ColumnFamily
+createCF DB{rocksDB = db_ptr} config cs = liftIO $ do
+    withOptions config $ \opt -> withCString cs $ \cstr ->
+        throwIfErr "createCF" $ c_rocksdb_create_column_family db_ptr opt cstr
