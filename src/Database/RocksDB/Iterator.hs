@@ -103,6 +103,15 @@ iterNext iter_ptr = liftIO $ do
     valid <- c_rocksdb_iter_valid iter_ptr
     when (valid /= 0) $ c_rocksdb_iter_next iter_ptr
 
+iterMove :: MonadIO m => Int -> Iterator -> m ()
+iterMove n iter_ptr | n == 0 = return ()
+                    | n < 0 = iterPrev iter_ptr >> iterValid iter_ptr >>= (\v -> if v
+                                                                                    then iterMove (n + 1) iter_ptr
+                                                                                    else return ())
+                    | n > 0 = iterNext iter_ptr >> iterValid iter_ptr >>= (\v -> if v
+                                                                                    then iterMove (n - 1) iter_ptr
+                                                                                    else return ())
+
 -- | Moves to the previous entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the first entry in the source.
 --
@@ -131,6 +140,20 @@ iterEntry iter = liftIO $ do
     mkey <- iterKey iter
     mval <- iterValue iter
     return $ (,) <$> mkey <*> mval
+{-
+iterManyEntry :: MonadIO m => Int -> Iterator -> m [(ByteString, ByteString)]
+iterManyEntry n iter | n <= 0 = return []
+                     | otherwise = do
+                         valid <- iterValid iter
+                         if valid
+                             then
+                                mkey <- iterKey
+                                mval <- iterValue iter
+                                iterNext 
+                                rest <- iterManyEntry (n - 1) iter
+                                let tup = (,) <$> mkey <*> mval
+                                r
+-}
 
 -- | Check for errors
 --
