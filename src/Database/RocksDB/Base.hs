@@ -25,6 +25,8 @@ module Database.RocksDB.Base
     -- * Basic Database Manipulations
     , withDB
     , withDBCF
+    , dropCF
+    , createCF
     , put
     , putCF
     , delete
@@ -33,8 +35,6 @@ module Database.RocksDB.Base
     , get
     , getCF
     , withSnapshot
-    , dropCF
-    , createCF
 
     -- * Administrative Functions
     , Property (..), getProperty
@@ -44,6 +44,7 @@ module Database.RocksDB.Base
 
     -- * Iteration
     , module Database.RocksDB.Iterator
+    , scanCF
     ) where
 
 import           Control.Monad             (when, (>=>), forM)
@@ -227,6 +228,17 @@ approximateSize DB{rocksDB = db_ptr} (from, to) = liftIO $
     where
         toInt64 = return . fromIntegral
 
+-- | Drop a column family
+dropCF :: MonadIO m => DB -> ColumnFamily -> m ()
+dropCF DB{rocksDB = db_ptr} cf = liftIO $
+    throwIfErr "dropCF" $ c_rocksdb_drop_column_family db_ptr cf
+
+-- | Create a column family
+createCF :: MonadIO m => DB -> Config -> String -> m ColumnFamily
+createCF DB{rocksDB = db_ptr} config cs = liftIO $ do
+    withOptions config $ \opt -> withCString cs $ \cstr ->
+        throwIfErr "createCF" $ c_rocksdb_create_column_family db_ptr opt cstr
+
 -- | Write a key/value pair.
 put :: MonadIO m => DB -> ByteString -> ByteString -> m ()
 put db = putCommon db Nothing
@@ -345,13 +357,21 @@ withStrings ss f =
     go acc [] = f (reverse acc)
     go acc (x:xs) = withCString x $ \p -> go (p:acc) xs
 
--- | Drop a column family
-dropCF :: MonadIO m => DB -> ColumnFamily -> m ()
-dropCF DB{rocksDB = db_ptr} cf = liftIO $
-    throwIfErr "dropCF" $ c_rocksdb_drop_column_family db_ptr cf
-
--- | Create a column family
-createCF :: MonadIO m => DB -> Config -> String -> m ColumnFamily
-createCF DB{rocksDB = db_ptr} config cs = liftIO $ do
-    withOptions config $ \opt -> withCString cs $ \cstr ->
-        throwIfErr "createCF" $ c_rocksdb_create_column_family db_ptr opt cstr
+--scanCF :: (MonadUnliftIO m, MonadIO m) => DB -> ColumnFamily -> m [(Maybe ByteString, Maybe ByteString)]
+scanCF db cf = liftIO $ do
+    withIterCF db cf $ \iter -> do
+        iterFirst iter
+        getNext iter
+    where --getNext :: Iterator -> m [(Maybe ByteString,Maybe ByteString)]
+          getNext i = do
+              valid <- iterValid i
+              if valid
+                  then do
+                    kv <- iterEntry i
+                    iterNext i
+                    sn <- getNext i
+                    return $ case kv of
+                                Just (k,v) -> ((k,v):sn)
+                                _ -> sn
+                  else
+                      return []
